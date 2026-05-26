@@ -1,0 +1,130 @@
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"path"
+
+	"github.com/hekmon/httplog/v3"
+)
+
+// models fetches backend models and enriches with 2 virtual model names
+func models(httpCli *http.Client, target *url.URL, servedModel, thinkingModel, noThinkingModel string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		logger := logger.With(httplog.GetReqIDSLogAttr(ctx))
+		logger.Debug("handling /v1/models request")
+
+		// Create request to backend (clone to copy all headers from incoming request)
+		req := r.Clone(ctx)
+		rewriteRequestURL(req, target)
+		stripHopByHopHeaders(req)
+		req.URL.Path = path.Join(target.Path, "/v1/models")
+		req.RequestURI = "" // Clear RequestURI for client request
+
+		// Send request to backend
+		resp, err := httpCli.Do(req)
+		if err != nil {
+			logger.Error("failed to fetch models from backend", slog.Any("error", err))
+			httpError(ctx, w, http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Read backend response
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logger.Error("failed to read models response", slog.Any("error", err))
+			httpError(ctx, w, http.StatusInternalServerError)
+			return
+		}
+
+		// Parse JSON response
+		var modelsResp map[string]any
+		if err := json.Unmarshal(body, &modelsResp); err != nil {
+			logger.Error("failed to parse models response", slog.Any("error", err))
+			httpError(ctx, w, http.StatusInternalServerError)
+			return
+		}
+
+		// Get original data array
+		data, ok := modelsResp["data"].([]any)
+		if !ok || len(data) == 0 {
+			logger.Warn("no models in backend response, passing through")
+			copyHeaders(w, resp)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(resp.StatusCode)
+			if _, err := w.Write(body); err != nil {
+				logger.Error("failed to write response", slog.Any("error", err))
+			}
+			return
+		}
+
+		// Find servedModel in backend data array (vLLM can serve multiple models)
+		var baseModelMap map[string]any
+		found := false
+		for _, model := range data {
+			modelMap, ok := model.(map[string]any)
+			if !ok {
+				continue
+			}
+			modelID, ok := modelMap["id"].(string)
+			if !ok {
+				continue
+			}
+			if modelID == servedModel {
+				baseModelMap = modelMap
+				found = true
+				break
+			}
+		}
+		if !found {
+			logger.Error("backend is not serving expected model",
+				slog.String("expected", servedModel),
+				slog.Any("available_models", data),
+			)
+			httpError(ctx, w, http.StatusBadGateway)
+			return
+		}
+		logger.Debug("backend model found and validated", slog.String("model", servedModel))
+
+		// Virtual model names
+		virtualModels := []string{thinkingModel, noThinkingModel}
+		var enrichedData []any
+
+		// Create 2 virtual models
+		for _, vmName := range virtualModels {
+			// Clone the base model
+			vmMap := make(map[string]any)
+			for k, v := range baseModelMap {
+				vmMap[k] = v
+			}
+			// Override the id with virtual model name
+			vmMap["id"] = vmName
+			enrichedData = append(enrichedData, vmMap)
+		}
+
+		modelsResp["data"] = enrichedData
+
+		// Marshal enriched response
+		enrichedBody, err := json.Marshal(modelsResp)
+		if err != nil {
+			logger.Error("failed to marshal enriched models response", slog.Any("error", err))
+			httpError(ctx, w, http.StatusInternalServerError)
+			return
+		}
+
+		// Write response
+		copyHeaders(w, resp)
+		w.Header().Del("Content-Length")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		if _, err = w.Write(enrichedBody); err != nil {
+			logger.Error("failed to write response", slog.Any("error", err))
+		}
+		logger.Info("enriched /v1/models response with 2 virtual models")
+	}
+}

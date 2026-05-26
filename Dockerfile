@@ -11,9 +11,12 @@ ADD . /build
 RUN go build -v -trimpath -ldflags "-s -w" -o kimi-rp .
 
 FROM ${app_image}:${app_tag}
-RUN apt update && apt install -y ca-certificates curl
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY --from=go_build /build/kimi-rp /usr/bin/kimi-rp
 
 EXPOSE 9000
 
 ENTRYPOINT ["/usr/bin/kimi-rp"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:9000/health || exit 1

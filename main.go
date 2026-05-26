@@ -10,12 +10,14 @@ import (
 	"os"
 	"os/signal"
 	"sync/atomic"
+	"syscall"
 	"time"
 
-	"github.com/hekmon/httplog/v2"
-	autoslog "github.com/iguanesolutions/auto-slog"
-	sysd "github.com/iguanesolutions/go-systemd/v5"
-	sysdnotify "github.com/iguanesolutions/go-systemd/v5/notify"
+	"github.com/hashicorp/go-cleanhttp"
+	"github.com/hekmon/httplog/v3"
+	autoslog "github.com/iguanesolutions/auto-slog/v2"
+	sysd "github.com/iguanesolutions/go-systemd/v6"
+	sysdnotify "github.com/iguanesolutions/go-systemd/v6/notify"
 )
 
 const (
@@ -34,7 +36,16 @@ func main() {
 	}
 
 	// Init
-	logger = autoslog.NewLogger(autoslog.LogLevel(cfg.LogLevel))
+	logger = autoslog.NewLogger(slog.HandlerOptions{
+		AddSource: true,
+		Level:     parseLogLevel(cfg.LogLevel),
+	})
+	// Warn if COMPLETE log level is enabled
+	if cfg.LogLevel == COMPLETE_LEVEL {
+		logger.Warn("COMPLETE log level enabled - full request/response bodies will be logged, including potentially sensitive data",
+			slog.String("log_level", cfg.LogLevel),
+		)
+	}
 	backendURL, err := url.Parse(cfg.Target)
 	if err != nil {
 		logger.Error("failed to parse backend URL", slog.Any("error", err))
@@ -42,13 +53,45 @@ func main() {
 	}
 
 	// Define HTTP handlers and middleware
-	httplogger := httplog.New(logger)
-	http.HandleFunc("/", httplogger.LogFunc(proxy(backendURL,
-		cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName)))
+	httplogger := httplog.New(logger, &httplog.Config{
+		RequestDumpLogLevel:  COMPLETE,
+		ResponseDumpLogLevel: COMPLETE,
+	})
+	// Create pooled HTTP client for forwarding requests
+	httpClient := cleanhttp.DefaultPooledClient()
+	// Explicit handlers for POST paths that need transformation
+	http.HandleFunc("POST /tokenize", httplogger.LogFunc(
+		tokenize(httpClient, backendURL,
+			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName,
+		),
+	))
+	http.HandleFunc("POST /v1/chat/completions", httplogger.LogFunc(
+		transform(httpClient, backendURL,
+			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName, cfg.EnforceSamplingParams,
+		),
+	))
+	http.HandleFunc("POST /v1/completions", httplogger.LogFunc(
+		legacyCompletions(httpClient, backendURL,
+			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName,
+		),
+	))
+	// Models endpoint handler (enriches backend models with virtual model names)
+	http.HandleFunc("GET /v1/models", httplogger.LogFunc(
+		models(httpClient, backendURL,
+			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName),
+	))
+	// Health check endpoints (not logged)
+	http.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"healthy"}`))
+	})
+	// Catch-all for all other paths (passthrough)
+	http.HandleFunc("/", httplogger.LogFunc(passthrough(httpClient, backendURL)))
 
 	// Prepare HTTP server and clean stop
 	server := &http.Server{Addr: fmt.Sprintf("%s:%d", cfg.Listen, cfg.Port)}
-	signalStopCtx, signalStopCtxCancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Interrupt)
+	signalStopCtx, signalStopCtxCancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer signalStopCtxCancel()
 	go cleanStop(signalStopCtx, server)
 
