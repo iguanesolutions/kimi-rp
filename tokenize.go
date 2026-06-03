@@ -38,7 +38,7 @@ func tokenize(httpCli *http.Client, target *url.URL,
 
 		// Act based on the model field
 		switch reqData["model"] {
-		case "":
+		case nil, "":
 			// by default vllm accept a empty model name as it serves only one model
 			logger.Debug("tokenize request received without a model name, accept it anyway and set the actual served model name",
 				slog.String("served_model", servedModel),

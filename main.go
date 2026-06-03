@@ -54,6 +54,7 @@ func main() {
 
 	// Define HTTP handlers and middleware
 	httplogger := httplog.New(logger, &httplog.Config{
+		BodyMaxRead:          1024 * 1024,
 		RequestDumpLogLevel:  COMPLETE,
 		ResponseDumpLogLevel: COMPLETE,
 	})
