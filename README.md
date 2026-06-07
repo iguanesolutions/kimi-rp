@@ -60,10 +60,15 @@ Configure the proxy using command-line flags or environment variables:
 | `-thinking-model` | `KIMIRP_THINKING_MODEL_NAME` | (required) | Name of the thinking model (e.g., `kimi-k2.6-thinking`, `kimi-k2.5-thinking`) |
 | `-no-thinking-model` | `KIMIRP_NO_THINKING_MODEL_NAME` | (required) | Name of the instant/no-thinking model (e.g., `kimi-k2.6-instant`, `kimi-k2.5-instant`) |
 | `-enforce-sampling-params` | `KIMIRP_ENFORCE_SAMPLING_PARAMS` | `false` | Enforce sampling parameters, overriding client-provided values |
+| `-preserve-thinking` | `KIMIRP_PRESERVE_THINKING` | `false` | Automatically enable `preserve_thinking` in `chat_template_kwargs` for thinking mode |
 
 ### Enforce Sampling Parameters
 
 By default, the proxy only sets sampling parameters if they are not already present in the request. When `-enforce-sampling-params` is enabled, the proxy will **always override** client-provided sampling parameters with the predefined values for the detected mode.
+
+### Preserve Thinking
+
+When `-preserve-thinking` is enabled, the proxy automatically injects `preserve_thinking: true` into `chat_template_kwargs` for requests routed to the thinking model. This preserves full reasoning content across multi-turn interactions and enhances performance in coding agent scenarios. This flag has no effect on the no-thinking (instant) model. See the [Kimi K2.6 model card](https://huggingface.co/moonshotai/Kimi-K2.6#preserve-thinking) for details.
 
 ## Request Routing
 
