@@ -23,6 +23,7 @@ type Config struct {
 	ThinkingModelName     string
 	NoThinkingModelName   string
 	EnforceSamplingParams bool
+	PreserveThinking      bool
 }
 
 func (c Config) Validate() error {
@@ -61,6 +62,7 @@ func LoadConfig() (Config, error) {
 	thinkingModel := flag.String("thinking-model", "", "Name of the thinking model")
 	noThinkingModel := flag.String("no-thinking-model", "", "Name of the no-thinking model")
 	enforceSampling := flag.Bool("enforce-sampling-params", false, "Enforce sampling parameters, overriding client-provided values")
+	preserveThinking := flag.Bool("preserve-thinking", false, "Automatically enable preserve_thinking in chat_template_kwargs for thinking mode")
 
 	flag.Parse()
 
@@ -77,6 +79,10 @@ func LoadConfig() (Config, error) {
 		return cfg, err
 	}
 	cfg.EnforceSamplingParams, err = getEnvOrFlagBool(*enforceSampling, "KIMIRP_ENFORCE_SAMPLING_PARAMS")
+	if err != nil {
+		return cfg, err
+	}
+	cfg.PreserveThinking, err = getEnvOrFlagBool(*preserveThinking, "KIMIRP_PRESERVE_THINKING")
 	if err != nil {
 		return cfg, err
 	}

@@ -161,7 +161,7 @@ func fixModelNameInResponse(responseBody []byte, virtualModel string, logger *sl
 }
 
 func transform(httpCli *http.Client, target *url.URL,
-	servedModel, thinkingModel, noThinkingModel string, enforceSamplingParams bool) http.HandlerFunc {
+	servedModel, thinkingModel, noThinkingModel string, enforceSamplingParams bool, preserveThinking bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Prepare
 		logger := logger.With(httplog.GetReqIDSLogAttr(r.Context()))
@@ -228,9 +228,18 @@ func transform(httpCli *http.Client, target *url.URL,
 				return
 			}
 			kwargsMap["thinking"] = think
+			if think && preserveThinking {
+				kwargsMap["preserve_thinking"] = true
+				logger.Debug("enabled preserve_thinking in chat_template_kwargs")
+			}
 			data["chat_template_kwargs"] = kwargsMap
 		} else {
-			data["chat_template_kwargs"] = map[string]any{"thinking": think}
+			kwargsMap := map[string]any{"thinking": think}
+			if think && preserveThinking {
+				kwargsMap["preserve_thinking"] = true
+				logger.Debug("enabled preserve_thinking in chat_template_kwargs")
+			}
+			data["chat_template_kwargs"] = kwargsMap
 		}
 		// marshal request body
 		requestBody, err = json.Marshal(data)

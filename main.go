@@ -68,7 +68,7 @@ func main() {
 	))
 	http.HandleFunc("POST /v1/chat/completions", httplogger.LogFunc(
 		transform(httpClient, backendURL,
-			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName, cfg.EnforceSamplingParams,
+			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName, cfg.EnforceSamplingParams, cfg.PreserveThinking,
 		),
 	))
 	http.HandleFunc("POST /v1/completions", httplogger.LogFunc(
