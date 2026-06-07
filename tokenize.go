@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -37,8 +38,19 @@ func tokenize(httpCli *http.Client, target *url.URL,
 		}
 
 		// Act based on the model field
-		switch reqData["model"] {
-		case nil, "":
+		var strModel string
+		if rawModel, ok := reqData["model"]; ok {
+			if strModel, ok = rawModel.(string); !ok {
+				logger.Error("failed to parse model field as string",
+					slog.String("model_field_type", fmt.Sprintf("%T", rawModel)),
+					slog.Any("model_field_value", rawModel),
+				)
+				httpError(ctx, w, http.StatusBadRequest)
+				return
+			}
+		}
+		switch strModel {
+		case "":
 			// by default vllm accept a empty model name as it serves only one model
 			logger.Debug("tokenize request received without a model name, accept it anyway and set the actual served model name",
 				slog.String("served_model", servedModel),
