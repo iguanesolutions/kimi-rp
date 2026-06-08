@@ -55,68 +55,87 @@ func (c Config) Validate() error {
 }
 
 func LoadConfig() (Config, error) {
-	var cfg Config
-
-	listen := flag.String("listen", "0.0.0.0", "IP address to listen on")
-	port := flag.Int("port", 9000, "Port to listen on")
-	target := flag.String("target", "http://127.0.0.1:8000", "Backend target, default is for a local vLLM")
-	loglevel := flag.String("loglevel", slog.LevelInfo.String(), "Log level (COMPLETE, DEBUG, INFO, WARN, ERROR)")
-	servedModel := flag.String("served-model", "", "Name of the served model")
-	instantModel := flag.String("instant-model", "", "Name of the instant model")
-	thinkingModel := flag.String("thinking-model", "", "Name of the thinking model")
-	preserveThinkingModel := flag.String("preserve-thinking-model", "", "Name of the preserve-thinking model")
-	enforceSampling := flag.Bool("enforce-sampling-params", false, "Enforce sampling parameters, overriding client-provided values")
-
+	listen := flag.String("listen",
+		defaultConfigValue("KIMIRP_LISTEN", "0.0.0.0"),
+		"IP address to listen on",
+	)
+	port := flag.Int("port",
+		defaultConfigValueInt("KIMIRP_PORT", 9000),
+		"Port to listen on",
+	)
+	target := flag.String("target",
+		defaultConfigValue("KIMIRP_TARGET", "http://127.0.0.1:8000"),
+		"Backend target, default is for a local vLLM",
+	)
+	loglevel := flag.String("loglevel",
+		defaultConfigValue("KIMIRP_LOGLEVEL", slog.LevelInfo.String()),
+		"Log level (COMPLETE, DEBUG, INFO, WARN, ERROR)",
+	)
+	servedModel := flag.String("served-model",
+		defaultConfigValue("KIMIRP_SERVED_MODEL_NAME", ""),
+		"Name of the served model",
+	)
+	instantModel := flag.String("instant-model",
+		defaultConfigValue("KIMIRP_INSTANT_MODEL_NAME", ""),
+		"Name of the instant model",
+	)
+	thinkingModel := flag.String("thinking-model",
+		defaultConfigValue("KIMIRP_THINKING_MODEL_NAME", "kimi-k26-thinking"),
+		"Name of the thinking model",
+	)
+	preserveThinkingModel := flag.String("preserve-thinking-model",
+		defaultConfigValue("KIMIRP_PRESERVE_THINKING_MODEL_NAME", ""),
+		"Name of the preserve-thinking model",
+	)
+	enforceSampling := flag.Bool("enforce-sampling-params",
+		defaultConfigValueBool("KIMIRP_ENFORCE_SAMPLING_PARAMS", false),
+		"Enforce sampling parameters, overriding client-provided values",
+	)
 	flag.Parse()
 
-	cfg.Listen = getEnvOrFlag(*listen, "KIMIRP_LISTEN")
-	cfg.Target = getEnvOrFlag(*target, "KIMIRP_TARGET")
-	cfg.LogLevel = getEnvOrFlag(*loglevel, "KIMIRP_LOGLEVEL")
-	cfg.ServedModelName = getEnvOrFlag(*servedModel, "KIMIRP_SERVED_MODEL_NAME")
-	cfg.InstantModelName = getEnvOrFlag(*instantModel, "KIMIRP_INSTANT_MODEL_NAME")
-	cfg.ThinkingModelName = getEnvOrFlag(*thinkingModel, "KIMIRP_THINKING_MODEL_NAME")
-	cfg.PreserveThinkingModelName = getEnvOrFlag(*preserveThinkingModel, "KIMIRP_PRESERVE_THINKING_MODEL_NAME")
-
-	var err error
-	cfg.Port, err = getEnvOrFlagInt(*port, "KIMIRP_PORT")
-	if err != nil {
-		return cfg, err
+	cfg := Config{
+		Listen:                    *listen,
+		Port:                      *port,
+		Target:                    *target,
+		LogLevel:                  *loglevel,
+		ServedModelName:           *servedModel,
+		InstantModelName:          *instantModel,
+		ThinkingModelName:         *thinkingModel,
+		PreserveThinkingModelName: *preserveThinkingModel,
+		EnforceSamplingParams:     *enforceSampling,
 	}
-	cfg.EnforceSamplingParams, err = getEnvOrFlagBool(*enforceSampling, "KIMIRP_ENFORCE_SAMPLING_PARAMS")
-	if err != nil {
-		return cfg, err
-	}
-
 	return cfg, cfg.Validate()
 }
 
-func getEnvOrFlag(flagVal string, envName string) string {
+func defaultConfigValue(envName, defaultVal string) string {
 	if envVal, exists := os.LookupEnv(envName); exists {
 		return envVal
 	}
-	return flagVal
+	return defaultVal
 }
 
-func getEnvOrFlagInt(flagVal int, envName string) (int, error) {
+func defaultConfigValueInt(envName string, defaultVal int) int {
 	if envVal, exists := os.LookupEnv(envName); exists {
 		intVal, err := strconv.Atoi(envVal)
 		if err != nil {
-			return 0, fmt.Errorf("invalid value for %s=%q: %w", envName, envVal, err)
+			fmt.Fprintf(os.Stderr, "invalid value for %s=%q: %v, using default %d\n", envName, envVal, err, defaultVal)
+			return defaultVal
 		}
-		return intVal, nil
+		return intVal
 	}
-	return flagVal, nil
+	return defaultVal
 }
 
-func getEnvOrFlagBool(flagVal bool, envName string) (bool, error) {
+func defaultConfigValueBool(envName string, defaultVal bool) bool {
 	if envVal, exists := os.LookupEnv(envName); exists {
 		boolVal, err := strconv.ParseBool(envVal)
 		if err != nil {
-			return false, fmt.Errorf("invalid value for %s=%q: %w", envName, envVal, err)
+			fmt.Fprintf(os.Stderr, "invalid value for %s=%q: %v, using default %t\n", envName, envVal, err, defaultVal)
+			return defaultVal
 		}
-		return boolVal, nil
+		return boolVal
 	}
-	return flagVal, nil
+	return defaultVal
 }
 
 // parseLogLevel parses a log level string, including the COMPLETE level
