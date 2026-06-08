@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"path"
@@ -11,8 +12,8 @@ import (
 	"github.com/hekmon/httplog/v3"
 )
 
-// models fetches backend models and enriches with 2 virtual model names
-func models(httpCli *http.Client, target *url.URL, servedModel, thinkingModel, noThinkingModel string) http.HandlerFunc {
+// models fetches backend models and enriches with 3 virtual model names
+func models(httpCli *http.Client, target *url.URL, servedModel, instantModel, thinkingModel, preserveThinkingModel string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		logger := logger.With(httplog.GetReqIDSLogAttr(ctx))
@@ -92,16 +93,14 @@ func models(httpCli *http.Client, target *url.URL, servedModel, thinkingModel, n
 		logger.Debug("backend model found and validated", slog.String("model", servedModel))
 
 		// Virtual model names
-		virtualModels := []string{thinkingModel, noThinkingModel}
+		virtualModels := []string{instantModel, thinkingModel, preserveThinkingModel}
 		var enrichedData []any
 
-		// Create 2 virtual models
+		// Create 3 virtual models
 		for _, vmName := range virtualModels {
 			// Clone the base model
-			vmMap := make(map[string]any)
-			for k, v := range baseModelMap {
-				vmMap[k] = v
-			}
+			vmMap := make(map[string]any, len(baseModelMap))
+			maps.Copy(vmMap, baseModelMap)
 			// Override the id with virtual model name
 			vmMap["id"] = vmName
 			enrichedData = append(enrichedData, vmMap)
@@ -125,6 +124,6 @@ func models(httpCli *http.Client, target *url.URL, servedModel, thinkingModel, n
 		if _, err = w.Write(enrichedBody); err != nil {
 			logger.Error("failed to write response", slog.Any("error", err))
 		}
-		logger.Info("enriched /v1/models response with 2 virtual models")
+		logger.Info("enriched /v1/models response with 3 virtual models")
 	}
 }

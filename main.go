@@ -63,23 +63,23 @@ func main() {
 	// Explicit handlers for POST paths that need transformation
 	http.HandleFunc("POST /tokenize", httplogger.LogFunc(
 		tokenize(httpClient, backendURL,
-			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName,
+			cfg.ServedModelName, cfg.InstantModelName, cfg.ThinkingModelName, cfg.PreserveThinkingModelName,
 		),
 	))
 	http.HandleFunc("POST /v1/chat/completions", httplogger.LogFunc(
 		transform(httpClient, backendURL,
-			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName, cfg.EnforceSamplingParams, cfg.PreserveThinking,
+			cfg.ServedModelName, cfg.InstantModelName, cfg.ThinkingModelName, cfg.PreserveThinkingModelName, cfg.EnforceSamplingParams,
 		),
 	))
 	http.HandleFunc("POST /v1/completions", httplogger.LogFunc(
 		legacyCompletions(httpClient, backendURL,
-			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName,
+			cfg.ServedModelName, cfg.InstantModelName, cfg.ThinkingModelName, cfg.PreserveThinkingModelName,
 		),
 	))
 	// Models endpoint handler (enriches backend models with virtual model names)
 	http.HandleFunc("GET /v1/models", httplogger.LogFunc(
 		models(httpClient, backendURL,
-			cfg.ServedModelName, cfg.ThinkingModelName, cfg.NoThinkingModelName),
+			cfg.ServedModelName, cfg.InstantModelName, cfg.ThinkingModelName, cfg.PreserveThinkingModelName),
 	))
 	// Health check endpoints (not logged)
 	http.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

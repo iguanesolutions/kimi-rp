@@ -15,7 +15,7 @@ import (
 )
 
 func tokenize(httpCli *http.Client, target *url.URL,
-	servedModel, thinkingModel, noThinkingModel string) http.HandlerFunc {
+	servedModel, instantModel, thinkingModel, preserveThinkingModel string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := logger.With(httplog.GetReqIDSLogAttr(r.Context()))
 		ctx := r.Context()
@@ -56,7 +56,7 @@ func tokenize(httpCli *http.Client, target *url.URL,
 				slog.String("served_model", servedModel),
 			)
 			reqData["model"] = servedModel
-		case thinkingModel, noThinkingModel:
+		case instantModel, thinkingModel, preserveThinkingModel:
 			// user has provided a valid (virtual) model name
 			logger.Debug("tokenize request received with a valid virtual model name",
 				slog.Any("virtual_model", reqData["model"]),

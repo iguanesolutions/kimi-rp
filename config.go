@@ -15,15 +15,15 @@ const COMPLETE = slog.LevelDebug - 4
 const COMPLETE_LEVEL = "COMPLETE"
 
 type Config struct {
-	Listen                string
-	Port                  int
-	Target                string
-	LogLevel              string
-	ServedModelName       string
-	ThinkingModelName     string
-	NoThinkingModelName   string
-	EnforceSamplingParams bool
-	PreserveThinking      bool
+	Listen                    string
+	Port                      int
+	Target                    string
+	LogLevel                  string
+	ServedModelName           string
+	InstantModelName          string
+	ThinkingModelName         string
+	PreserveThinkingModelName string
+	EnforceSamplingParams     bool
 }
 
 func (c Config) Validate() error {
@@ -42,11 +42,14 @@ func (c Config) Validate() error {
 	if c.ServedModelName == "" {
 		return errors.New("served model name cannot be empty")
 	}
+	if c.InstantModelName == "" {
+		return errors.New("instant model name cannot be empty")
+	}
 	if c.ThinkingModelName == "" {
 		return errors.New("thinking model name cannot be empty")
 	}
-	if c.NoThinkingModelName == "" {
-		return errors.New("no-thinking model name cannot be empty")
+	if c.PreserveThinkingModelName == "" {
+		return errors.New("preserve-thinking model name cannot be empty")
 	}
 	return nil
 }
@@ -59,10 +62,10 @@ func LoadConfig() (Config, error) {
 	target := flag.String("target", "http://127.0.0.1:8000", "Backend target, default is for a local vLLM")
 	loglevel := flag.String("loglevel", slog.LevelInfo.String(), "Log level (COMPLETE, DEBUG, INFO, WARN, ERROR)")
 	servedModel := flag.String("served-model", "", "Name of the served model")
+	instantModel := flag.String("instant-model", "", "Name of the instant model")
 	thinkingModel := flag.String("thinking-model", "", "Name of the thinking model")
-	noThinkingModel := flag.String("no-thinking-model", "", "Name of the no-thinking model")
+	preserveThinkingModel := flag.String("preserve-thinking-model", "", "Name of the preserve-thinking model")
 	enforceSampling := flag.Bool("enforce-sampling-params", false, "Enforce sampling parameters, overriding client-provided values")
-	preserveThinking := flag.Bool("preserve-thinking", false, "Automatically enable preserve_thinking in chat_template_kwargs for thinking mode")
 
 	flag.Parse()
 
@@ -70,8 +73,9 @@ func LoadConfig() (Config, error) {
 	cfg.Target = getEnvOrFlag(*target, "KIMIRP_TARGET")
 	cfg.LogLevel = getEnvOrFlag(*loglevel, "KIMIRP_LOGLEVEL")
 	cfg.ServedModelName = getEnvOrFlag(*servedModel, "KIMIRP_SERVED_MODEL_NAME")
+	cfg.InstantModelName = getEnvOrFlag(*instantModel, "KIMIRP_INSTANT_MODEL_NAME")
 	cfg.ThinkingModelName = getEnvOrFlag(*thinkingModel, "KIMIRP_THINKING_MODEL_NAME")
-	cfg.NoThinkingModelName = getEnvOrFlag(*noThinkingModel, "KIMIRP_NO_THINKING_MODEL_NAME")
+	cfg.PreserveThinkingModelName = getEnvOrFlag(*preserveThinkingModel, "KIMIRP_PRESERVE_THINKING_MODEL_NAME")
 
 	var err error
 	cfg.Port, err = getEnvOrFlagInt(*port, "KIMIRP_PORT")
@@ -79,10 +83,6 @@ func LoadConfig() (Config, error) {
 		return cfg, err
 	}
 	cfg.EnforceSamplingParams, err = getEnvOrFlagBool(*enforceSampling, "KIMIRP_ENFORCE_SAMPLING_PARAMS")
-	if err != nil {
-		return cfg, err
-	}
-	cfg.PreserveThinking, err = getEnvOrFlagBool(*preserveThinking, "KIMIRP_PRESERVE_THINKING")
 	if err != nil {
 		return cfg, err
 	}

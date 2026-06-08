@@ -6,16 +6,18 @@ Kimi Reverse Proxy is a lightweight HTTP reverse proxy for **Kimi K2.5 and K2.6*
 
 This proxy's primary purpose is to:
 
-1. **Accept requests for two virtual model names** (configured via `-thinking-model` and `-no-thinking-model`), rejecting all other model names with HTTP 400
+1. **Accept requests for three virtual model names** (configured via `-instant-model`, `-thinking-model`, and `-preserve-thinking-model`), rejecting all other model names with HTTP 400
 2. **Set appropriate sampling parameters** automatically based on the model type (Kimi K2.5/K2.6 recommended values):
    - **Thinking mode**: `temperature=1.0`, `top_p=0.95`
-   - **Instant (no-thinking) mode**: `temperature=0.6`, `top_p=0.95`
+   - **Instant mode**: `temperature=0.6`, `top_p=0.95`
+   - **Preserve-thinking mode**: `temperature=1.0`, `top_p=0.95` (same as thinking mode, with `preserve_thinking` enabled)
 3. **Configure thinking mode** by setting `chat_template_kwargs.thinking`:
    - `thinking=true` for thinking model
-   - `thinking=false` for no-thinking model
+   - `thinking=false` for instant model
+   - `thinking=true` + `preserve_thinking=true` for preserve-thinking model
 4. **Rewrite the model name** to the actual backend model name before forwarding to vLLM
 5. **Fix vLLM response bugs** where non-thinking, non-streaming responses incorrectly place content in `reasoning_content` or `reasoning` fields instead of `content`
-6. **Enrich `/v1/models` endpoint** by fetching backend models and exposing 2 virtual models with the same metadata
+6. **Enrich `/v1/models` endpoint** by fetching backend models and exposing 3 virtual models with the same metadata
 7. **Provide a `/tokenize` endpoint** that replaces virtual model names with the backend model name before forwarding to vLLM's `/tokenize`
 
 ## Installation
@@ -32,8 +34,9 @@ go build -o kimi-rp .
 ./kimi-rp \
   -target "http://127.0.0.1:8000" \
   -served-model "your-backend-model-name" \
+  -instant-model "kimi-k2.6-instant" \
   -thinking-model "kimi-k2.6-thinking" \
-  -no-thinking-model "kimi-k2.6-instant"
+  -preserve-thinking-model "kimi-k2.6-thinking-preserve"
 ```
 
 Or using environment variables:
@@ -41,8 +44,9 @@ Or using environment variables:
 ```bash
 export KIMIRP_TARGET="http://127.0.0.1:8000"
 export KIMIRP_SERVED_MODEL_NAME="your-backend-model-name"
+export KIMIRP_INSTANT_MODEL_NAME="kimi-k2.6-instant"
 export KIMIRP_THINKING_MODEL_NAME="kimi-k2.6-thinking"
-export KIMIRP_NO_THINKING_MODEL_NAME="kimi-k2.6-instant"
+export KIMIRP_PRESERVE_THINKING_MODEL_NAME="kimi-k2.6-thinking-preserve"
 ./kimi-rp
 ```
 
@@ -57,22 +61,22 @@ Configure the proxy using command-line flags or environment variables:
 | `-target` | `KIMIRP_TARGET` | `http://127.0.0.1:8000` | Backend target URL |
 | `-loglevel` | `KIMIRP_LOGLEVEL` | `INFO` | Log level (COMPLETE, DEBUG, INFO, WARN, ERROR) |
 | `-served-model` | `KIMIRP_SERVED_MODEL_NAME` | (required) | Backend model name to use in outgoing requests |
+| `-instant-model` | `KIMIRP_INSTANT_MODEL_NAME` | (required) | Name of the instant model (e.g., `kimi-k2.6-instant`, `kimi-k2.5-instant`) |
 | `-thinking-model` | `KIMIRP_THINKING_MODEL_NAME` | (required) | Name of the thinking model (e.g., `kimi-k2.6-thinking`, `kimi-k2.5-thinking`) |
-| `-no-thinking-model` | `KIMIRP_NO_THINKING_MODEL_NAME` | (required) | Name of the instant/no-thinking model (e.g., `kimi-k2.6-instant`, `kimi-k2.5-instant`) |
+| `-preserve-thinking-model` | `KIMIRP_PRESERVE_THINKING_MODEL_NAME` | (required) | Name of the preserve-thinking model (e.g., `kimi-k2.6-thinking-preserve`) |
 | `-enforce-sampling-params` | `KIMIRP_ENFORCE_SAMPLING_PARAMS` | `false` | Enforce sampling parameters, overriding client-provided values |
-| `-preserve-thinking` | `KIMIRP_PRESERVE_THINKING` | `false` | Automatically enable `preserve_thinking` in `chat_template_kwargs` for thinking mode |
 
 ### Enforce Sampling Parameters
 
 By default, the proxy only sets sampling parameters if they are not already present in the request. When `-enforce-sampling-params` is enabled, the proxy will **always override** client-provided sampling parameters with the predefined values for the detected mode.
 
-### Preserve Thinking
+### Preserve Thinking Model
 
-When `-preserve-thinking` is enabled, the proxy automatically injects `preserve_thinking: true` into `chat_template_kwargs` for requests routed to the thinking model. This preserves full reasoning content across multi-turn interactions and enhances performance in coding agent scenarios. This flag has no effect on the no-thinking (instant) model. See the [Kimi K2.6 model card](https://huggingface.co/moonshotai/Kimi-K2.6#preserve-thinking) for details.
+The preserve-thinking virtual model behaves like the thinking model but also injects `preserve_thinking: true` into `chat_template_kwargs`. This preserves full reasoning content across multi-turn interactions and enhances performance in coding agent scenarios. See the [Kimi K2.6 model card](https://huggingface.co/moonshotai/Kimi-K2.6#preserve-thinking) for details.
 
 ## Request Routing
 
-- **`GET /v1/models`**: Enriched (fetches backend models, validates served model, exposes 2 virtual models)
+- **`GET /v1/models`**: Enriched (fetches backend models, validates served model, exposes 3 virtual models)
 - **`POST /v1/chat/completions`**: Transformed (sampling params + thinking mode applied)
 - **`POST /v1/completions`**: Model name validated and swapped (no sampling params or thinking mode — raw prompt completions bypass the chat template)
 - **`POST /tokenize`**: Replaces virtual model names with backend model name and forwards to vLLM's `/tokenize`
@@ -134,7 +138,7 @@ After=network.target
 Type=notify
 User=kimi-rp
 Group=kimi-rp
-ExecStart=/usr/local/bin/kimi-rp -served-model "your-backend-model" -thinking-model "kimi-k2.6-thinking" -no-thinking-model "kimi-k2.6-instant"
+ExecStart=/usr/local/bin/kimi-rp -served-model "your-backend-model" -instant-model "kimi-k2.6-instant" -thinking-model "kimi-k2.6-thinking" -preserve-thinking-model "kimi-k2.6-thinking-preserve"
 Restart=on-failure
 Environment=KIMIRP_LOGLEVEL=INFO
 

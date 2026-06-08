@@ -21,19 +21,42 @@ var (
 		"temperature": 1.0,
 		"top_p":       0.95,
 	}
-	// No-thinking mode parameters (original kimi-rp values)
-	noThinkingParams = map[string]any{
+	// Instant mode parameters (original kimi-rp values)
+	instantParams = map[string]any{
 		"temperature": 0.6,
 		"top_p":       0.95,
 	}
 )
+
+// modelKind classifies which virtual model (or backend model) was requested.
+type modelKind int
+
+const (
+	kindThinking modelKind = iota
+	kindInstant
+	kindPreserveThinking
+)
+
+// classifyModel maps a requested model name to its kind.
+func classifyModel(modelName, instantModel, thinkingModel, preserveThinkingModel string) (modelKind, bool) {
+	switch modelName {
+	case instantModel:
+		return kindInstant, true
+	case thinkingModel:
+		return kindThinking, true
+	case preserveThinkingModel:
+		return kindPreserveThinking, true
+	default:
+		return 0, false
+	}
+}
 
 // legacyCompletions handles /v1/completions (text completions API).
 // Unlike chat completions, this endpoint uses raw prompts with no chat template.
 // We only validate the virtual model name, swap it to the served model, and fix
 // the model name in the response. No sampling params or chat_template_kwargs.
 func legacyCompletions(httpCli *http.Client, target *url.URL,
-	servedModel, thinkingModel, noThinkingModel string) http.HandlerFunc {
+	servedModel, instantModel, thinkingModel, preserveThinkingModel string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := logger.With(httplog.GetReqIDSLogAttr(r.Context()))
 		ctx := r.Context()
@@ -60,7 +83,7 @@ func legacyCompletions(httpCli *http.Client, target *url.URL,
 		}
 		// Validate virtual model name
 		switch modelName {
-		case thinkingModel, noThinkingModel:
+		case instantModel, thinkingModel, preserveThinkingModel:
 			logger.Info("legacy completions model matched", slog.String("virtual_model", modelName))
 		default:
 			logger.Error("unsupported model", slog.String("model", modelName))
@@ -161,12 +184,11 @@ func fixModelNameInResponse(responseBody []byte, virtualModel string, logger *sl
 }
 
 func transform(httpCli *http.Client, target *url.URL,
-	servedModel, thinkingModel, noThinkingModel string, enforceSamplingParams bool, preserveThinking bool) http.HandlerFunc {
+	servedModel, instantModel, thinkingModel, preserveThinkingModel string, enforceSamplingParams bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Prepare
 		logger := logger.With(httplog.GetReqIDSLogAttr(r.Context()))
 		ctx := r.Context()
-		var think, stream bool // Track thinking mode and streaming for response fixing
 		// Read request body
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 		requestBody, err := io.ReadAll(r.Body)
@@ -190,30 +212,43 @@ func transform(httpCli *http.Client, target *url.URL,
 			return
 		}
 		// Track streaming mode for response fixing
+		var stream bool
 		if streamVal, ok := data["stream"]; ok {
 			stream, _ = streamVal.(bool)
 		}
-		// check thinking mode based on model name and apply sampling parameters
-		switch modelName {
-		case thinkingModel:
-			think = true
+		// Classify the requested model and apply sampling parameters
+		kind, ok := classifyModel(modelName, instantModel, thinkingModel, preserveThinkingModel)
+		if !ok {
+			logger.Error("unsupported model", slog.String("model", modelName))
+			httpError(ctx, w, http.StatusBadRequest)
+			return
+		}
+
+		switch kind {
+		case kindThinking:
 			logger.Info("model matched",
 				slog.String("type", "thinking"),
 				slog.String("virtual_model", modelName),
 			)
 			applySamplingParams(data, thinkingParams, logger, enforceSamplingParams)
-		case noThinkingModel:
-			think = false
+		case kindInstant:
 			logger.Info("model matched",
-				slog.String("type", "no_thinking"),
+				slog.String("type", "instant"),
 				slog.String("virtual_model", modelName),
 			)
-			applySamplingParams(data, noThinkingParams, logger, enforceSamplingParams)
-		default:
-			logger.Error("unsupported model", slog.String("model", modelName))
-			httpError(ctx, w, http.StatusBadRequest)
-			return
+			applySamplingParams(data, instantParams, logger, enforceSamplingParams)
+		case kindPreserveThinking:
+			logger.Info("model matched",
+				slog.String("type", "preserve_thinking"),
+				slog.String("virtual_model", modelName),
+			)
+			applySamplingParams(data, thinkingParams, logger, enforceSamplingParams)
 		}
+
+		// Derive thinking-mode flags from the single classification
+		think := kind == kindThinking || kind == kindPreserveThinking
+		preserveThink := kind == kindPreserveThinking
+
 		// Track the virtual model name requested by client (before override)
 		virtualModel := modelName
 		// override model name for backend
@@ -228,14 +263,14 @@ func transform(httpCli *http.Client, target *url.URL,
 				return
 			}
 			kwargsMap["thinking"] = think
-			if think && preserveThinking {
+			if preserveThink {
 				kwargsMap["preserve_thinking"] = true
 				logger.Debug("enabled preserve_thinking in chat_template_kwargs")
 			}
 			data["chat_template_kwargs"] = kwargsMap
 		} else {
 			kwargsMap := map[string]any{"thinking": think}
-			if think && preserveThinking {
+			if preserveThink {
 				kwargsMap["preserve_thinking"] = true
 				logger.Debug("enabled preserve_thinking in chat_template_kwargs")
 			}
