@@ -73,6 +73,36 @@ func tokenize(httpCli *http.Client, target *url.URL,
 			return
 		}
 
+		// Apply chat_template_kwargs based on the virtual model kind
+		if strModel != "" {
+			kind, _ := classifyModel(strModel, instantModel, thinkingModel, preserveThinkingModel)
+			think := kind == kindThinking || kind == kindPreserveThinking
+			preserveThink := kind == kindPreserveThinking
+
+			kwargs, ok := reqData["chat_template_kwargs"]
+			if ok && kwargs != nil {
+				kwargsMap, ok := kwargs.(map[string]any)
+				if !ok {
+					logger.Error("chat_template_kwargs is not a map[string]any")
+					httpError(ctx, w, http.StatusBadRequest)
+					return
+				}
+				kwargsMap["thinking"] = think
+				if preserveThink {
+					kwargsMap["preserve_thinking"] = true
+					logger.Debug("enabled preserve_thinking in chat_template_kwargs")
+				}
+				reqData["chat_template_kwargs"] = kwargsMap
+			} else {
+				kwargsMap := map[string]any{"thinking": think}
+				if preserveThink {
+					kwargsMap["preserve_thinking"] = true
+					logger.Debug("enabled preserve_thinking in chat_template_kwargs")
+				}
+				reqData["chat_template_kwargs"] = kwargsMap
+			}
+		}
+
 		// Marshal the modified request body
 		if requestBody, err = json.Marshal(reqData); err != nil {
 			logger.Error("failed to marshal modified request body", slog.String("error", err.Error()))
